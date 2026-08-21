@@ -3,6 +3,7 @@
 | 文档 | 内容 |
 |------|------|
 | [README](../README.md) | 定位 / Quick Start / 开发 |
+| [POSITIONING](POSITIONING.md) | 三仓同源定位矩阵与边界 |
 | [PUBLISHING](PUBLISHING.md) | 维护者发布流程（不面向公开 README） |
 | 包内 `docs/ptl/templates` | `AGENTS.md.tpl`（shared 包自包含模板） |
 

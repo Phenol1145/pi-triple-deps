@@ -7,7 +7,7 @@
 ![version](https://img.shields.io/badge/version-1.5.0-blue)
 
 - **定位**：配置/路径/work-mode/session/program-manifest 等跨产品协议，以及平台探测/workspace/logger/model-router/sdk 适配/container-runtime。
-- **导航**：Quick Start · [包目录](#包目录) · [开发](#开发) · [发布](#发布)
+- **导航**：Quick Start · [包目录](#包目录) · [开发](#development) · [仓库定位](docs/POSITIONING.md) · [文档索引](docs/README.md)
 
 ## ✨ Quick Start
 
