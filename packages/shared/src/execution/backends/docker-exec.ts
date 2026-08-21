@@ -118,13 +118,22 @@ export class DockerExecBackend implements ExecutionBackend {
 function defaultRun(timeoutMs: number) {
   return (cmd: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string; timedOut?: boolean }> =>
     new Promise((resolve, reject) => {
-      execFile(cmd, args, { encoding: "utf8", timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+      let forcedTimedOut = false;
+      let child: ReturnType<typeof execFile>;
+      const timer = setTimeout(() => {
+        forcedTimedOut = true;
+        child?.kill("SIGKILL");
+      }, timeoutMs);
+      timer.unref?.();
+      child = execFile(cmd, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+        clearTimeout(timer);
+        // docker exec 的 CLI 被 SIGKILL 后可能以 0 退出——超时必须以自身计时为准
+        if (forcedTimedOut) {
+          resolve({ code: null, stdout: stdout ?? "", stderr: stderr ?? "", timedOut: true });
+          return;
+        }
         if (error) {
           const errno = error as NodeJS.ErrnoException & { killed?: boolean };
-          if (errno.killed) {
-            resolve({ code: null, stdout: stdout ?? "", stderr: stderr ?? "", timedOut: true });
-            return;
-          }
           if (typeof errno.code === "number") {
             resolve({ code: errno.code, stdout: stdout ?? "", stderr: stderr ?? "" });
             return;
