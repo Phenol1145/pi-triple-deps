@@ -1,0 +1,21 @@
+{
+  "name": "@away_from/pi-triple-deps",
+  "version": "1.5.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi-Triple 公用依赖仓库：@away_from/shared + @away_from/infra",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p packages/shared && tsc -p packages/infra",
+    "lint": "tsc -p packages/shared --noEmit && tsc -p packages/infra --noEmit",
+    "test": "vitest run",
+    "pack:tgz": "rm -rf dist-tgz && mkdir -p dist-tgz && npm pack --workspace @away_from/shared --pack-destination dist-tgz && npm pack --workspace @away_from/infra --pack-destination dist-tgz && shasum -a 256 dist-tgz/*.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
