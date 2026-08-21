@@ -12,6 +12,10 @@
     "./tmux": {
       "types": "./dist/tmux.d.ts",
       "default": "./dist/tmux.js"
+    },
+    "./execution": {
+      "types": "./dist/execution/index.d.ts",
+      "default": "./dist/execution/index.js"
     }
   },
   "files": [

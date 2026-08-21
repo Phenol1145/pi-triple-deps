@@ -3,10 +3,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@away_from/shared": fileURLToPath(new URL("./packages/shared/src/index.ts", import.meta.url)),
-      "@away_from/infra": fileURLToPath(new URL("./packages/infra/src/index.ts", import.meta.url)),
-    },
+    alias: [
+      { find: /^@away_from\/shared$/, replacement: fileURLToPath(new URL("./packages/shared/src/index.ts", import.meta.url)) },
+      { find: /^@away_from\/infra$/, replacement: fileURLToPath(new URL("./packages/infra/src/index.ts", import.meta.url)) },
+    ],
   },
   test: {
     globals: true,
