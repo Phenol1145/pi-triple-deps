@@ -1,11 +1,12 @@
 /**
- * execution/backends/http.ts —— HttpExecutionBackend（P0 协议面冻结）。
+ * execution/backends/http.ts —— HttpExecutionBackend（P0 descriptor + v1.1 模式协商）。
  *
  * 在 HttpExecutionClient（纯传输）之上补 engine 注册视角：
  *  - id / descriptor 身份
  *  - profile 固定：客户端不得自我提升，请求统一以 descriptor.profile 发出
  *  - capabilities 缓存（TTL）+ version / sandbox-untrusted 安全不变量 fail-closed
  *  - descriptor.pathMapping 默认注入（请求自带 mapping 优先）
+ *  - v1.1：capabilities.modes 位图预检（MODE_NOT_SUPPORTED）+ interactive() 透传
  */
 
 import { ExecutionClientError, HttpExecutionClient } from "../client.js";
@@ -13,11 +14,13 @@ import type {
   ExecutionBackend,
   ExecutionBackendDescriptor,
   ExecutionCapabilities,
+  ExecutionInteractiveHandlers,
+  ExecutionInteractiveSession,
   ExecutionRequest,
   ExecutionResult,
   ExecutionStreamHandlers,
 } from "../types.js";
-import { validateExecutionBackendDescriptor } from "../validate.js";
+import { resolveExecutionMode, resolveExecutionModes, validateExecutionBackendDescriptor } from "../validate.js";
 import { EXECUTION_WIRE } from "../wire.js";
 
 export interface HttpExecutionBackendOptions {
@@ -69,21 +72,47 @@ export class HttpExecutionBackend implements ExecutionBackend {
 
   async execute(request: ExecutionRequest, signal?: AbortSignal): Promise<ExecutionResult> {
     const pinned = this.pinProfile(request);
+    if (resolveExecutionMode(pinned) === "interactive") {
+      throw new ExecutionClientError(
+        EXECUTION_WIRE.errorCodes.invalidRequest,
+        "use interactive() for mode=interactive",
+      );
+    }
     const capabilities = await this.getCapabilities(signal);
     this.assertRequestAgainstCapabilities(pinned, capabilities);
     return this.client.execute(pinned, signal);
   }
 
-  /** 流式执行（stream:true + SSE）；返回 execId。 */
+  /** 流式执行（mode=stream / legacy stream:true + SSE）；返回 execId。 */
   async stream(
     request: ExecutionRequest,
     handlers: ExecutionStreamHandlers,
     signal?: AbortSignal,
   ): Promise<string> {
     const pinned = this.pinProfile(request);
+    if (resolveExecutionMode(pinned) !== "stream") {
+      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "stream() requires mode=stream");
+    }
     const capabilities = await this.getCapabilities(signal);
     this.assertRequestAgainstCapabilities(pinned, capabilities);
     return this.client.stream(pinned, handlers, signal);
+  }
+
+  /** interactive 模式：capabilities.modes.interactive 预检后透传 WS 会话。 */
+  async interactive(
+    request: ExecutionRequest,
+    handlers?: ExecutionInteractiveHandlers,
+    signal?: AbortSignal,
+  ): Promise<ExecutionInteractiveSession> {
+    const pinned = this.pinProfile(request);
+    const capabilities = await this.getCapabilities(signal);
+    if (resolveExecutionModes(capabilities).interactive !== true) {
+      throw new ExecutionClientError(
+        EXECUTION_WIRE.errorCodes.modeNotSupported,
+        `backend ${this.id} does not support interactive mode`,
+      );
+    }
+    return this.client.interactive(pinned, handlers, signal);
   }
 
   async cancel(execId: string): Promise<boolean> {
@@ -106,10 +135,11 @@ export class HttpExecutionBackend implements ExecutionBackend {
   }
 
   private assertCompatibleCapabilities(capabilities: ExecutionCapabilities): void {
-    if (capabilities?.version !== EXECUTION_WIRE.version) {
+    const version = capabilities?.version;
+    if (version !== EXECUTION_WIRE.versions.v1 && version !== EXECUTION_WIRE.versions.v1_1) {
       throw new ExecutionClientError(
         EXECUTION_WIRE.errorCodes.backendUnavailable,
-        `backend ${this.id} capabilities version mismatch: expected ${EXECUTION_WIRE.version}, got ${String(capabilities?.version)}`,
+        `backend ${this.id} capabilities version mismatch: expected ${EXECUTION_WIRE.versions.v1} or ${EXECUTION_WIRE.versions.v1_1}, got ${String(version)}`,
       );
     }
     if (this.descriptor.profile === "sandbox-untrusted") {
@@ -126,10 +156,11 @@ export class HttpExecutionBackend implements ExecutionBackend {
     request: ExecutionRequest,
     capabilities: ExecutionCapabilities,
   ): void {
-    if (request.stream === true && capabilities.streaming !== true) {
+    const mode = resolveExecutionMode(request);
+    if (mode === "persistent" || !resolveExecutionModes(capabilities)[mode]) {
       throw new ExecutionClientError(
-        EXECUTION_WIRE.errorCodes.invalidRequest,
-        `backend ${this.id} does not support streaming`,
+        EXECUTION_WIRE.errorCodes.modeNotSupported,
+        `backend ${this.id} does not support mode=${mode}`,
       );
     }
     if (request.pathMapping !== undefined && capabilities.pathMapping !== true) {

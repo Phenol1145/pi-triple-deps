@@ -15,7 +15,7 @@ import type {
   ExecutionResult,
 } from "../types.js";
 import { EXECUTION_WIRE } from "../wire.js";
-import { validateExecutionRequest } from "../validate.js";
+import { resolveExecutionMode, validateExecutionRequest } from "../validate.js";
 import { ExecutionClientError } from "../client.js";
 
 export interface LocalBackendOptions {
@@ -56,10 +56,11 @@ export class LocalBackend implements ExecutionBackend {
       maxStdoutBytes: this.defaults.maxStdoutBytes,
       maxStderrBytes: this.defaults.maxStderrBytes,
     });
-    if (req.stream) {
+    const mode = resolveExecutionMode(req);
+    if (mode !== "sync") {
       throw new ExecutionClientError(
-        EXECUTION_WIRE.errorCodes.backendUnavailable,
-        "local backend does not support streaming",
+        EXECUTION_WIRE.errorCodes.modeNotSupported,
+        `local backend does not support mode=${mode}`,
       );
     }
     if (req.profile !== undefined && req.profile !== "host") {

@@ -14,7 +14,7 @@ import type {
   ExecutionResult,
 } from "../types.js";
 import { EXECUTION_WIRE } from "../wire.js";
-import { validateExecutionRequest } from "../validate.js";
+import { resolveExecutionMode, validateExecutionRequest } from "../validate.js";
 import { ExecutionClientError } from "../client.js";
 
 export interface DockerExecBackendOptions {
@@ -71,8 +71,9 @@ export class DockerExecBackend implements ExecutionBackend {
       maxStdoutBytes: this.opts.maxStdoutBytes,
       maxStderrBytes: this.opts.maxStderrBytes,
     });
-    if (req.stream) {
-      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.backendUnavailable, "docker-exec backend does not support streaming");
+    const mode = resolveExecutionMode(req);
+    if (mode !== "sync") {
+      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.modeNotSupported, `docker-exec backend does not support mode=${mode}`);
     }
     if (req.profile !== undefined && req.profile !== "dev-container") {
       throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "docker-exec backend only accepts profile=dev-container");
