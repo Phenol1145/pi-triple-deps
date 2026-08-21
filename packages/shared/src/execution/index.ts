@@ -3,7 +3,20 @@
  */
 export * from "./types.js";
 export * from "./wire.js";
-export { validateExecutionRequest, isExecutionProfile, ExecutionRequestError, EXECUTION_LIMITS } from "./validate.js";
+export {
+  validateExecutionRequest,
+  validateExecutionBackendDescriptor,
+  isExecutionProfile,
+  ExecutionRequestError,
+  ExecutionBackendDescriptorError,
+  EXECUTION_LIMITS,
+} from "./validate.js";
 export { HttpExecutionClient, ExecutionClientError } from "./client.js";
-export { LocalBackend, DockerExecBackend } from "./backends/index.js";
-export type { LocalBackendOptions, DockerExecBackendOptions } from "./backends/index.js";
+export {
+  LocalBackend,
+  DockerExecBackend,
+  HttpExecutionBackend,
+  type LocalBackendOptions,
+  type DockerExecBackendOptions,
+  type HttpExecutionBackendOptions,
+} from "./backends/index.js";

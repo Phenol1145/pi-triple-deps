@@ -5,7 +5,12 @@
  * 这里只做跨 backend 共有的结构与数值校验。
  */
 
-import type { ExecutionProfile, ExecutionRequest } from "./types.js";
+import type {
+  ExecutionBackendDescriptor,
+  ExecutionPathMapping,
+  ExecutionProfile,
+  ExecutionRequest,
+} from "./types.js";
 import { EXECUTION_WIRE } from "./wire.js";
 
 export const EXECUTION_LIMITS = {
@@ -19,6 +24,15 @@ export class ExecutionRequestError extends Error {
     super(message);
     this.name = "ExecutionRequestError";
     this.code = code;
+  }
+}
+
+/** backend descriptor 配置错误（engine 侧 fail-closed；非 wire 错误） */
+export class ExecutionBackendDescriptorError extends Error {
+  readonly code = EXECUTION_WIRE.errorCodes.invalidRequest;
+  constructor(message: string) {
+    super(message);
+    this.name = "ExecutionBackendDescriptorError";
   }
 }
 
@@ -119,4 +133,88 @@ export function validateExecutionRequest(input: unknown, defaults: {
   }
 
   return normalized;
+}
+
+function badDescriptor(message: string): never {
+  throw new ExecutionBackendDescriptorError(message);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validatePathMappingShape(value: unknown): ExecutionPathMapping | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    typeof value.hostRoot !== "string" ||
+    value.hostRoot.length === 0 ||
+    typeof value.execRoot !== "string" ||
+    value.execRoot.length === 0
+  ) {
+    badDescriptor("pathMapping must be { hostRoot, execRoot } non-empty strings");
+  }
+  return { hostRoot: value.hostRoot, execRoot: value.execRoot };
+}
+
+const BACKEND_ID_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
+const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const DESCRIPTOR_KEYS = new Set(["id", "url", "profile", "tokenEnv", "pathMapping", "required"]);
+
+/**
+ * engine 侧 backend 注册描述的结构校验（P0 协议面冻结）。
+ * 返回规范化 descriptor（url 去尾斜杠）；未知字段 fail-closed。
+ */
+export function validateExecutionBackendDescriptor(input: unknown): ExecutionBackendDescriptor {
+  if (!isRecord(input)) badDescriptor("backend descriptor must be an object");
+  for (const key of Object.keys(input)) {
+    if (!DESCRIPTOR_KEYS.has(key)) badDescriptor(`unknown backend descriptor field: ${key}`);
+  }
+
+  const id = input.id;
+  if (typeof id !== "string" || !BACKEND_ID_PATTERN.test(id)) {
+    badDescriptor("id must match ^[a-z][a-z0-9._-]{0,63}$");
+  }
+
+  const rawUrl = input.url;
+  if (typeof rawUrl !== "string" || rawUrl.length === 0) badDescriptor("url must be a non-empty string");
+  const url = rawUrl.replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    badDescriptor("url must be a valid absolute URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    badDescriptor("url protocol must be http or https");
+  }
+  if (parsed.search !== "" || parsed.hash !== "") badDescriptor("url must not contain query or fragment");
+
+  const profile = input.profile;
+  if (!isExecutionProfile(profile)) {
+    badDescriptor("profile must be one of host|dev-container|sandbox-untrusted");
+  }
+
+  const tokenEnv = input.tokenEnv;
+  if (tokenEnv !== undefined) {
+    if (typeof tokenEnv !== "string" || !ENV_NAME_PATTERN.test(tokenEnv)) {
+      badDescriptor("tokenEnv must be an environment variable name");
+    }
+  }
+
+  const required = input.required;
+  if (required !== undefined && typeof required !== "boolean") {
+    badDescriptor("required must be a boolean");
+  }
+
+  const descriptor: ExecutionBackendDescriptor = {
+    id,
+    url,
+    profile,
+  };
+  if (tokenEnv !== undefined) descriptor.tokenEnv = tokenEnv;
+  if (required !== undefined) descriptor.required = required;
+  const pathMapping = validatePathMappingShape(input.pathMapping);
+  if (pathMapping !== undefined) descriptor.pathMapping = pathMapping;
+  return descriptor;
 }

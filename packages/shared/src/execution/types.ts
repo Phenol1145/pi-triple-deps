@@ -97,6 +97,25 @@ export interface ExecutionBackend {
   execute(request: ExecutionRequest, signal?: AbortSignal): Promise<ExecutionResult>;
 }
 
+/**
+ * engine 侧 backend 注册描述（P0 协议面冻结）。
+ * 一个 descriptor = 一个外部执行面的接入身份；engine 是唯一客户端。
+ */
+export interface ExecutionBackendDescriptor {
+  /** engine 内唯一后端名，如 "sandbox" / "local-lean"（^[a-z][a-z0-9._-]{0,63}$） */
+  id: string;
+  /** 执行面 baseUrl（http/https，不带尾斜杠） */
+  url: string;
+  /** 期望信任档；engine 只能按此档发请求，执行面必须接受/再校验 */
+  profile: ExecutionProfile;
+  /** 认证 token 所在的环境变量名（值不落配置） */
+  tokenEnv?: string;
+  /** 可选：engine 路径 → 执行面路径的默认映射；请求自带 mapping 优先 */
+  pathMapping?: ExecutionPathMapping;
+  /** true → 该 backend 不可用时 engine 拒绝启动（strict 模式） */
+  required?: boolean;
+}
+
 export interface ExecutionStreamHandlers {
   onOutput?: (event: ExecutionOutputEvent) => void;
   onDone: (event: ExecutionDoneEvent) => void;

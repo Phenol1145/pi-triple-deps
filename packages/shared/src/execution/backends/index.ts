@@ -3,3 +3,4 @@
  */
 export { LocalBackend, type LocalBackendOptions } from "./local.js";
 export { DockerExecBackend, type DockerExecBackendOptions } from "./docker-exec.js";
+export { HttpExecutionBackend, type HttpExecutionBackendOptions } from "./http.js";
