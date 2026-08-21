@@ -58,14 +58,6 @@ pi-triple-deps
 npm run lint          # 两包 tsc --noEmit
 npm run build         # shared → infra
 npm test              # vitest，无 Docker 依赖
-npm run pack:tgz      # 本地 tgz + sha256（dist-tgz/）
-```
-
-## 发布（需 npm Granular Access Token）
-
-```bash
-npm publish ./packages/shared --access public
-npm publish ./packages/infra --access public
 ```
 
 ## Roadmap
