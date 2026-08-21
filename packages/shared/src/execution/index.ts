@@ -4,3 +4,4 @@
 export * from "./types.js";
 export * from "./wire.js";
 export { validateExecutionRequest, isExecutionProfile, ExecutionRequestError, EXECUTION_LIMITS } from "./validate.js";
+export { HttpExecutionClient, ExecutionClientError } from "./client.js";

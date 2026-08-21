@@ -87,3 +87,18 @@ export interface ExecutionDoneEvent {
 export interface ExecutionError {
   error: { code: string; message: string };
 }
+
+export interface ExecutionBackend {
+  /** backend 标识（如 "sandbox" / "local" / "docker-exec"） */
+  readonly id: string;
+  /** 能力声明（HTTP client 每次探测；本地 backend 静态返回） */
+  getCapabilities(): Promise<ExecutionCapabilities>;
+  /** 同步执行；请求含 stream:true 时 backend 可返回未完成 job 状态或按能力拒绝 */
+  execute(request: ExecutionRequest, signal?: AbortSignal): Promise<ExecutionResult>;
+}
+
+export interface ExecutionStreamHandlers {
+  onOutput?: (event: ExecutionOutputEvent) => void;
+  onDone: (event: ExecutionDoneEvent) => void;
+}
+
