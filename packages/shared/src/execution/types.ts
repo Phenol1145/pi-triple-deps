@@ -299,6 +299,23 @@ export interface ExecutionSessionResetRequest {
   snapshotId?: string;
 }
 
+/**
+ * persistent 会话后端（执行面实现）。
+ * 后端只管理“进程/内核状态”生命周期；sessionId、租约 TTL、快照登记与
+ * released/expired 状态由 ExecutionHttpServer 的会话管理器统一负责。
+ * 后端私有 token 永不出 HTTP——保证内核 internalId/lease id 不泄漏到 wire。
+ */
+export interface ExecutionSessionBackend {
+  /** 创建后端会话（内核条目/进程），返回后端私有 opaque token。 */
+  createSession(): Promise<string>;
+  execute(sessionToken: string, request: ExecutionSessionExecuteRequest): Promise<ExecutionResult>;
+  /** 返回后端生成的快照 id；tag 由 wire 层登记。 */
+  snapshot(sessionToken: string, request: ExecutionSessionSnapshotRequest): Promise<{ snapshotId: string }>;
+  /** snapshotId 缺省回滚到会话初始状态。 */
+  reset(sessionToken: string, snapshotId?: string): Promise<void>;
+  release(sessionToken: string): Promise<void>;
+}
+
 /* ── engine 侧 backend 注册描述（P0 协议面冻结） ───────────────────── */
 
 /**

@@ -18,6 +18,14 @@ import type {
   ExecutionOutputEvent,
   ExecutionRequest,
   ExecutionResult,
+  ExecutionSession,
+  ExecutionSessionCreateRequest,
+  ExecutionSessionCreateResponse,
+  ExecutionSessionExecuteRequest,
+  ExecutionSessionExecuteResult,
+  ExecutionSessionResetRequest,
+  ExecutionSessionSnapshot,
+  ExecutionSessionSnapshotRequest,
   ExecutionStreamHandlers,
 } from "./types.js";
 import {
@@ -110,13 +118,49 @@ export class HttpExecutionClient implements ExecutionBackend {
     }
   }
 
+  /* ── persistent 会话 API（P4：客户端实现） ───────────────────────── */
+
+  private sessionUrl(sessionId: string, suffix?: string): string {
+    if (typeof sessionId !== "string" || sessionId.length === 0 || sessionId.length > 128 || /[^A-Za-z0-9._~-]/.test(sessionId)) {
+      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "sessionId must be 1..128 characters of [A-Za-z0-9._~-]");
+    }
+    return EXECUTION_WIRE.paths.session.replace(":id", encodeURIComponent(sessionId)) + (suffix ?? "");
+  }
+
+  async createSession(request: ExecutionSessionCreateRequest = {}, signal?: AbortSignal): Promise<ExecutionSessionCreateResponse> {
+    return this.request<ExecutionSessionCreateResponse>("POST", EXECUTION_WIRE.paths.sessions, request, signal);
+  }
+
+  async getSession(sessionId: string, signal?: AbortSignal): Promise<ExecutionSession> {
+    return this.request<ExecutionSession>("GET", this.sessionUrl(sessionId), undefined, signal);
+  }
+
+  async sessionExecute(sessionId: string, request: ExecutionSessionExecuteRequest, signal?: AbortSignal): Promise<ExecutionSessionExecuteResult> {
+    return this.request<ExecutionSessionExecuteResult>("POST", this.sessionUrl(sessionId, "/execute"), request, signal);
+  }
+
+  async sessionSnapshot(sessionId: string, request: ExecutionSessionSnapshotRequest = {}, signal?: AbortSignal): Promise<ExecutionSessionSnapshot> {
+    return this.request<ExecutionSessionSnapshot>("POST", this.sessionUrl(sessionId, "/snapshot"), request, signal);
+  }
+
+  async sessionReset(sessionId: string, request: ExecutionSessionResetRequest = {}, signal?: AbortSignal): Promise<{ ok: true }> {
+    return this.request<{ ok: true }>("POST", this.sessionUrl(sessionId, "/reset"), request, signal);
+  }
+
+  async sessionRelease(sessionId: string, signal?: AbortSignal): Promise<{ ok: true }> {
+    return this.request<{ ok: true }>("POST", this.sessionUrl(sessionId, "/release"), {}, signal);
+  }
+
   async execute(request: ExecutionRequest, signal?: AbortSignal): Promise<ExecutionResult> {
     const mode = resolveExecutionMode(request);
     if (mode === "interactive") {
       throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "use interactive() for mode=interactive");
     }
     if (mode === "persistent") {
-      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.modeNotSupported, "persistent mode is not implemented on the client");
+      throw new ExecutionClientError(
+        EXECUTION_WIRE.errorCodes.invalidRequest,
+        "mode=persistent must use the session API (createSession/sessionExecute) instead of execute()",
+      );
     }
     if (mode === "sync") {
       return this.request<ExecutionResult>("POST", EXECUTION_WIRE.paths.exec, request, signal);

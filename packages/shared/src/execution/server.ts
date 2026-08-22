@@ -1,14 +1,15 @@
 /**
  * execution/server.ts —— ExecutionHttpServer（execution/v1.1 服务端唯一实现）。
  *
- * HTTP + WS、模式路由（sync/stream/interactive）、Bearer 校验（常数时间比较）、
- * 结构化错误信封。persistent 模式 wire 已定稿但本轮不实现：capabilities 声明
- * persistent:true 会 fail-closed 拒绝。
+ * HTTP + WS、模式路由（sync/stream/interactive/persistent）、Bearer 校验（常数时间比较）、
+ * 结构化错误信封。persistent 模式由可选 `sessions` 后端驱动（P4）：
+ * 未装配 sessions 时 capabilities 声明 persistent:true 仍 fail-closed 拒绝。
  *
- * 驱动面 = ExecutionJobBackend：
+ * 驱动面 = ExecutionJobBackend + ExecutionSessionBackend：
  *  - sync        → backend.execute()
  *  - stream      → backend.startJob() + GET /exec/:id/stream（SSE）
  *  - interactive → backend.startJob() + GET /exec/:id/ws（WS JSON frame）
+ *  - persistent  → sessions.* + /sessions（租约/snapshot/reset/release 由会话管理器维护）
  */
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from "node:http";
@@ -28,6 +29,7 @@ import type {
   ExecutionProfile,
   ExecutionRequest,
   ExecutionResult,
+  ExecutionSessionBackend,
   ExecutionWsServerFrame,
 } from "./types.js";
 import {
@@ -39,6 +41,7 @@ import {
   validateExecutionRequest,
 } from "./validate.js";
 import { EXECUTION_WIRE } from "./wire.js";
+import { ExecutionSessionManager } from "./sessions.js";
 
 type ServerBackend = ExecutionBackend & { startJob?: ExecutionJobBackend["startJob"] };
 
@@ -52,6 +55,10 @@ export interface ExecutionHttpServerOptions {
   capabilities?: ExecutionCapabilities | (() => ExecutionCapabilities | Promise<ExecutionCapabilities>);
   /** Bearer 共享密钥；getter 每次请求读取（支持测试注入/env 热更新） */
   token?: string | (() => string | undefined);
+  /** persistent 会话后端；装配后服务端把 capabilities.modes.persistent 声明为 true（P4） */
+  sessions?: ExecutionSessionBackend;
+  /** 会话 execute 缺省（超时/输出上限） */
+  sessionDefaults?: { timeoutMs?: number; maxStdoutBytes?: number; maxStderrBytes?: number };
   /** 强制信任档：请求自报其他 profile 一律 INVALID_REQUEST（不得自我提升） */
   profile?: ExecutionProfile;
   /** server 默认路径映射（请求自带 mapping 优先） */
@@ -88,6 +95,7 @@ export class ExecutionHttpServer {
   private readonly backend: ServerBackend;
   private readonly capabilitiesOption: ExecutionHttpServerOptions["capabilities"];
   private readonly tokenOption: ExecutionHttpServerOptions["token"];
+  private readonly sessionManager: ExecutionSessionManager | undefined;
   private readonly profile: ExecutionProfile | undefined;
   private readonly pathMapping: ExecutionPathMapping | undefined;
   private readonly defaults: Required<NonNullable<ExecutionHttpServerOptions["defaults"]>>;
@@ -104,6 +112,9 @@ export class ExecutionHttpServer {
     this.backend = options.backend;
     this.capabilitiesOption = options.capabilities;
     this.tokenOption = options.token;
+    this.sessionManager = options.sessions !== undefined
+      ? new ExecutionSessionManager({ backend: options.sessions, sessionDefaults: options.sessionDefaults })
+      : undefined;
     this.profile = options.profile;
     this.pathMapping = options.pathMapping;
     this.maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
@@ -137,9 +148,10 @@ export class ExecutionHttpServer {
     return address.port;
   }
 
-  /** 关闭：断开 WS、尽力取消全部在飞任务、关闭 HTTP server */
+  /** 关闭：释放全部会话、断开 WS、尽力取消全部在飞任务、关闭 HTTP server */
   async close(): Promise<void> {
     this.closing = true;
+    await this.sessionManager?.close();
     for (const ws of this.wss.clients) {
       try { ws.close(1001, "server shutdown"); } catch { /* 忽略 */ }
     }
@@ -170,6 +182,17 @@ export class ExecutionHttpServer {
       return;
     }
 
+    if (req.method === "POST" && pathname === EXECUTION_WIRE.paths.sessions) {
+      await this.handleSessionCreate(req, res);
+      return;
+    }
+
+    const sessionMatch = matchSessionPath(pathname);
+    if (sessionMatch) {
+      await this.routeSession(sessionMatch, req, res);
+      return;
+    }
+
     if (req.method === "POST" && pathname === EXECUTION_WIRE.paths.exec) {
       await this.handleExec(req, res);
       return;
@@ -193,6 +216,66 @@ export class ExecutionHttpServer {
       return;
     }
     this.sendError(res, new ExecutionClientError(EXECUTION_WIRE.errorCodes.notFound, `not found: ${pathname}`, 404));
+  }
+
+  private sessionOrNotConfigured(): ExecutionSessionManager {
+    if (!this.sessionManager) {
+      throw new ExecutionClientError(
+        EXECUTION_WIRE.errorCodes.modeNotSupported,
+        "persistent sessions are not configured on this backend",
+      );
+    }
+    return this.sessionManager;
+  }
+
+  private async handleSessionCreate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const manager = this.sessionOrNotConfigured();
+    const raw = await this.readJsonBody(req, res);
+    if (raw === undefined) return;
+    try {
+      this.sendJson(res, 200, await manager.create(raw));
+    } catch (error) {
+      this.sendError(res, this.asWireRequestError(error));
+    }
+  }
+
+  private async routeSession(
+    match: NonNullable<ReturnType<typeof matchSessionPath>>,
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
+    const manager = this.sessionOrNotConfigured();
+    const { id, suffix } = match;
+    if (suffix === undefined && req.method === "GET") {
+      try {
+        this.sendJson(res, 200, manager.get(id));
+      } catch (error) {
+        this.sendError(res, this.asWireRequestError(error));
+      }
+      return;
+    }
+    const readAnd = async <T>(fn: (raw: unknown) => Promise<T> | T): Promise<void> => {
+      const raw = await this.readJsonBody(req, res);
+      if (raw === undefined) return;
+      try {
+        this.sendJson(res, 200, await fn(raw));
+      } catch (error) {
+        this.sendError(res, this.asWireRequestError(error));
+      }
+    };
+    if (suffix === "execute" && req.method === "POST") return readAnd((raw) => manager.execute(id, raw));
+    if (suffix === "snapshot" && req.method === "POST") return readAnd((raw) => manager.snapshot(id, raw));
+    if (suffix === "reset" && req.method === "POST") return readAnd((raw) => manager.reset(id, raw));
+    if (suffix === "release" && req.method === "POST") return readAnd(() => manager.release(id));
+    this.sendError(res, new ExecutionClientError(EXECUTION_WIRE.errorCodes.notFound, `not found: ${req.url ?? ""}`, 404));
+  }
+
+  private asWireRequestError(error: unknown): ExecutionClientError | Error {
+    if (error instanceof ExecutionClientError) return error;
+    if (error instanceof ExecutionRequestError) {
+      return new ExecutionClientError(error.code, error.message);
+    }
+    return error instanceof Error ? error : new Error(String(error));
   }
 
   private async handleExec(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -575,7 +658,10 @@ export class ExecutionHttpServer {
             : typeof source === "function"
               ? await source()
               : source;
-          const capabilities = validateExecutionCapabilities(raw);
+          const validated = validateExecutionCapabilities(raw);
+          const capabilities = this.sessionManager !== undefined
+            ? this.withPersistentAdvertised(validated)
+            : validated;
           this.assertServerCanHonor(capabilities);
           return capabilities;
         } catch (error) {
@@ -587,11 +673,26 @@ export class ExecutionHttpServer {
     return this.capabilitiesPromise;
   }
 
-  /** 声明了就必须可兑现；persistent 本轮未实现 → 声明即 fail-closed。 */
+  /**
+   * 装配 sessions 后端后，persistent 就是服务端真实能力：
+   *  - v1.1 capabilities：modes.persistent 强制置 true（声明必须可兑现）；
+   *  - execution/v1 capabilities：升级为 v1.1 位图（sync 恒真，stream 取 streaming）。
+   */
+  private withPersistentAdvertised(capabilities: ExecutionCapabilities): ExecutionCapabilities {
+    const modes = resolveExecutionModes(capabilities);
+    if (modes.persistent) return capabilities;
+    const merged = { ...modes, persistent: true };
+    if (capabilities.version === EXECUTION_WIRE.versions.v1_1) {
+      return { ...capabilities, modes: merged };
+    }
+    return { ...capabilities, version: EXECUTION_WIRE.versions.v1_1, modes: merged };
+  }
+
+  /** 声明了就必须可兑现；persistent 未装配 sessions 时声明即 fail-closed。 */
   private assertServerCanHonor(capabilities: ExecutionCapabilities): void {
     const modes = resolveExecutionModes(capabilities);
-    if (modes.persistent) {
-      throw new TypeError("capabilities declare modes.persistent=true but ExecutionHttpServer does not implement persistent mode yet");
+    if (modes.persistent && this.sessionManager === undefined) {
+      throw new TypeError("capabilities declare modes.persistent=true but ExecutionHttpServer has no sessions backend");
     }
     if ((modes.stream || modes.interactive) && typeof this.backend.startJob !== "function") {
       throw new TypeError("capabilities declare stream/interactive but backend has no startJob()");
@@ -653,6 +754,19 @@ export class ExecutionHttpServer {
 }
 
 /* ── helpers ──────────────────────────────────────────────────────── */
+
+function matchSessionPath(pathname: string): { id: string; suffix: "execute" | "snapshot" | "reset" | "release" | undefined } | null {
+  const m = /^\/sessions\/([^/]+)(?:\/(execute|snapshot|reset|release))?$/.exec(pathname);
+  if (!m) return null;
+  let id: string;
+  try {
+    id = decodeURIComponent(m[1]!);
+  } catch {
+    return null;
+  }
+  if (id.length === 0) return null;
+  return { id, suffix: m[2] as "execute" | "snapshot" | "reset" | "release" | undefined };
+}
 
 function matchExecPath(pathname: string): { id: string; suffix: "stream" | "cancel" | "ws" | undefined } | null {
   const m = /^\/exec\/([^/]+)(?:\/(stream|cancel|ws))?$/.exec(pathname);

@@ -22,6 +22,7 @@ export {
   EXECUTION_SESSION_LIMITS,
 } from "./validate.js";
 export { HttpExecutionClient, ExecutionClientError } from "./client.js";
+export { ExecutionSessionManager, type ExecutionSessionManagerOptions } from "./sessions.js";
 export { ExecutionHttpServer, type ExecutionHttpServerOptions } from "./server.js";
 export {
   LocalBackend,
