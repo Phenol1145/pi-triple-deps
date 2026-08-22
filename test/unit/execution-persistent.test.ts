@@ -60,10 +60,10 @@ class FakeSessionBackend implements ExecutionSessionBackend {
   readonly released: string[] = [];
   private readonly states = new Map<string, { counters: number[] }>();
 
-  async createSession(): Promise<string> {
+  async createSession(context?: unknown): Promise<string> {
     const token = `tok-${this.next++}`;
     this.created.push(token);
-    this.states.set(token, { counters: [] });
+    this.states.set(token, { counters: [], context });
     return token;
   }
 
@@ -241,6 +241,17 @@ describe("persistent 会话 wire（P4：server + client）", () => {
     await expect(client.execute({ cmd: "x", mode: "persistent" })).rejects.toMatchObject({
       code: EXECUTION_WIRE.errorCodes.invalidRequest,
     });
+  });
+
+  it("后端私有上下文透传（create context 不出 wire body）", async () => {
+    const backend = new FakeSessionBackend();
+    const manager = new (await import("@away_from/shared/execution")).ExecutionSessionManager({ backend });
+    const created = await manager.create({}, { lang: "python", taskId: "task-1" });
+    expect(backend.created).toContain("tok-1");
+    expect(created.sessionId).not.toContain("task-1");
+    expect((backend as unknown as { states: Map<string, { context?: unknown }> }).states.get("tok-1")?.context)
+      .toEqual({ lang: "python", taskId: "task-1" });
+    await manager.close();
   });
 
   it("租约过期：execute 抛 SESSION_EXPIRED 并释放后端会话", async () => {

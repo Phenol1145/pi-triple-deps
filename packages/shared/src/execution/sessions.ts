@@ -126,11 +126,11 @@ export class ExecutionSessionManager {
     };
   }
 
-  async create(raw: unknown): Promise<ExecutionSessionCreateResponse> {
+  async create(raw: unknown, backendContext?: unknown): Promise<ExecutionSessionCreateResponse> {
     this.assertOpen();
     const request: ExecutionSessionCreateRequest = validateExecutionSessionCreateRequest(raw);
     const leaseMs = request.leaseMs ?? EXECUTION_SESSION_LIMITS.defaultLeaseMs;
-    const token = await this.backend.createSession();
+    const token = await this.backend.createSession(backendContext);
     const now = this.clock();
     const rec: SessionRecord = {
       sessionId: randomUUID(),
