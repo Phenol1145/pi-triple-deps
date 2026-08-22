@@ -280,6 +280,8 @@ export interface ExecutionSessionExecuteRequest {
 
 export interface ExecutionSessionExecuteResult extends ExecutionResult {
   sessionId: string;
+  /** REPL 后端可选返回值（如 python `_result`；同步命令后端通常缺省） */
+  value?: unknown;
 }
 
 export interface ExecutionSessionSnapshotRequest {
@@ -312,7 +314,7 @@ export interface ExecutionSessionBackend {
    *  context 为服务端实现私有上下文（如 sandbox 的 kernel lang/grant 绑定），
    *  不出现在 wire body——由装配层传入，通用 ExecutionHttpServer 恒为 undefined。 */
   createSession(context?: unknown): Promise<string>;
-  execute(sessionToken: string, request: ExecutionSessionExecuteRequest, context?: unknown): Promise<ExecutionResult>;
+  execute(sessionToken: string, request: ExecutionSessionExecuteRequest, context?: unknown): Promise<ExecutionResult & { value?: unknown }>;
   /** 返回后端生成的快照 id；tag 由 wire 层登记。 */
   snapshot(sessionToken: string, request: ExecutionSessionSnapshotRequest): Promise<{ snapshotId: string; state?: unknown }>;
   /** snapshotId 缺省回滚到会话初始状态。 */

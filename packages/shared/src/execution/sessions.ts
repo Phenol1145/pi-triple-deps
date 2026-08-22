@@ -158,9 +158,13 @@ export class ExecutionSessionManager {
     const request: ExecutionSessionExecuteRequest = validateExecutionSessionExecuteRequest(raw, this.defaults);
     // 每次 execute 自动续租（先续后执行——长任务期间租约不回退）。
     rec.expiresAt = this.clock() + rec.leaseMs;
-    const result: ExecutionResult = await this.backend.execute(rec.token, request, backendContext);
+    const result: ExecutionResult & { value?: unknown } = await this.backend.execute(rec.token, request, backendContext);
     rec.lastResult = { exitCode: result.exitCode ?? null, completedAt: this.clock() };
-    return { ...result, sessionId: rec.sessionId };
+    return {
+      ...result,
+      sessionId: rec.sessionId,
+      ...(result.value !== undefined ? { value: result.value } : {}),
+    };
   }
 
   async snapshot(sessionId: string, raw: unknown): Promise<ExecutionSessionSnapshot> {
