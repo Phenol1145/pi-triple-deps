@@ -67,7 +67,7 @@ class FakeSessionBackend implements ExecutionSessionBackend {
     return token;
   }
 
-  async execute(token: string, request: ExecutionSessionExecuteRequest): Promise<ExecutionResult> {
+  async execute(token: string, request: ExecutionSessionExecuteRequest, _context?: unknown): Promise<ExecutionResult> {
     this.executed.push({ token, request });
     const state = this.states.get(token);
     if (!state) throw new Error("unknown backend token");

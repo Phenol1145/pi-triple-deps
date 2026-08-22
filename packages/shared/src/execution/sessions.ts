@@ -152,13 +152,13 @@ export class ExecutionSessionManager {
     return this.toWire(rec);
   }
 
-  async execute(sessionId: string, raw: unknown): Promise<ExecutionSessionExecuteResult> {
+  async execute(sessionId: string, raw: unknown, backendContext?: unknown): Promise<ExecutionSessionExecuteResult> {
     this.assertOpen();
     const rec = this.active(sessionId);
     const request: ExecutionSessionExecuteRequest = validateExecutionSessionExecuteRequest(raw, this.defaults);
     // 每次 execute 自动续租（先续后执行——长任务期间租约不回退）。
     rec.expiresAt = this.clock() + rec.leaseMs;
-    const result: ExecutionResult = await this.backend.execute(rec.token, request);
+    const result: ExecutionResult = await this.backend.execute(rec.token, request, backendContext);
     rec.lastResult = { exitCode: result.exitCode ?? null, completedAt: this.clock() };
     return { ...result, sessionId: rec.sessionId };
   }
