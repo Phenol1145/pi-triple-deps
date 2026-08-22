@@ -2,13 +2,14 @@
  * execution/types.ts —— 执行面统一协议类型。
  *
  * execution/v1（P0）：sync + SSE stream；
- * execution/v1.1（P0.1）：模式框架 + interactive WS + persistent wire 规范（实现后置）。
+ * execution/v1.1（P0.1）：模式框架 + interactive WS + persistent `/sessions*`
+ * （P4 已实现并发布 1.7.x：ExecutionSessionManager / ExecutionHttpServer / 客户端会话 API）。
  *
  * 三仓同源契约（pi-triple-deps / pth / ptl）：
- *  - SandboxBackend（pth-sandbox，sandbox-untrusted，保持 v1）
- *  - LocalBackend（ptl，host）
- *  - DockerExecBackend（ptl，dev-container → 工具容器）
- *  - ExecutionHttpServer（v1.1 服务端唯一实现）
+ *  - SandboxBackend（pth-sandbox，sandbox-untrusted；P4 已迁 persistent /sessions 宿主）
+ *  - LocalBackend（本地执行器，host，归 PTH 仓）
+ *  - DockerExecBackend（dev-container → 工具容器兼容路径）
+ *  - ExecutionHttpServer（v1.1 服务端统一实现；sandbox 为 wire 对齐的兼容宿主例外）
  */
 
 export type ExecutionProfile = "host" | "dev-container" | "sandbox-untrusted";
