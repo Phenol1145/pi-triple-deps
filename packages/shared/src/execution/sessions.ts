@@ -174,7 +174,13 @@ export class ExecutionSessionManager {
       createdAt: this.clock(),
     };
     rec.snapshots.set(record.snapshotId, record);
-    return { sessionId: rec.sessionId, ...record };
+    return {
+      sessionId: rec.sessionId,
+      snapshotId: record.snapshotId,
+      ...(record.tag !== undefined ? { tag: record.tag } : {}),
+      createdAt: record.createdAt,
+      ...(snapshot.state !== undefined ? { state: snapshot.state } : {}),
+    };
   }
 
   async reset(sessionId: string, raw: unknown): Promise<{ ok: true }> {

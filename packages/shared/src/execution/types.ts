@@ -292,6 +292,8 @@ export interface ExecutionSessionSnapshot {
   snapshotId: string;
   tag?: string;
   createdAt: number;
+  /** 后端可选状态导出（如 sandbox kernel 变量枚举；refine 消费——不是可恢复 checkpoint） */
+  state?: unknown;
 }
 
 export interface ExecutionSessionResetRequest {
@@ -312,7 +314,7 @@ export interface ExecutionSessionBackend {
   createSession(context?: unknown): Promise<string>;
   execute(sessionToken: string, request: ExecutionSessionExecuteRequest): Promise<ExecutionResult>;
   /** 返回后端生成的快照 id；tag 由 wire 层登记。 */
-  snapshot(sessionToken: string, request: ExecutionSessionSnapshotRequest): Promise<{ snapshotId: string }>;
+  snapshot(sessionToken: string, request: ExecutionSessionSnapshotRequest): Promise<{ snapshotId: string; state?: unknown }>;
   /** snapshotId 缺省回滚到会话初始状态。 */
   reset(sessionToken: string, snapshotId?: string): Promise<void>;
   release(sessionToken: string): Promise<void>;
