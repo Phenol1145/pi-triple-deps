@@ -19,4 +19,5 @@ export { Registry } from "./registry.js";
 export type { RegistryEntry as MailboxRegistryEntry } from "./registry.js";
 
 export * from "./program-manifest.js";
+export * from "./python/pth-memory-lib.js";
 export * from "./execution/index.js";

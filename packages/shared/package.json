@@ -1,6 +1,6 @@
 {
   "name": "@away_from/shared",
-  "version": "1.7.4",
+  "version": "1.7.6",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,6 +16,10 @@
     "./execution": {
       "types": "./dist/execution/index.d.ts",
       "default": "./dist/execution/index.js"
+    },
+    "./extension-version-check": {
+      "types": "./dist/extension-version-check.d.ts",
+      "default": "./dist/extension-version-check.js"
     }
   },
   "files": [
